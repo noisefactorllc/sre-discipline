@@ -1,0 +1,10 @@
+{
+  "name": "sre-discipline",
+  "version": "1.0.0",
+  "description": "Battle-tested SRE operational discipline for infrastructure work. Enforces a rigorous checklist procedure for deployments, migrations, cache invalidation, certificate management, DNS changes, firewall rules, and incident response.",
+  "author": {
+    "name": "Noise Factor LLC"
+  },
+  "license": "MIT",
+  "keywords": ["sre", "infrastructure", "operations", "devops", "deployment", "incident-response"]
+}

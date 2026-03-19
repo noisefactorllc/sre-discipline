@@ -1,0 +1,14 @@
+{
+  "name": "noisefactor",
+  "owner": {
+    "name": "Noise Factor LLC"
+  },
+  "plugins": [
+    {
+      "name": "sre-discipline",
+      "source": "./",
+      "description": "Battle-tested SRE operational discipline for infrastructure work",
+      "version": "1.0.0"
+    }
+  ]
+}
