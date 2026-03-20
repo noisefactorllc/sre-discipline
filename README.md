@@ -27,7 +27,7 @@ Or add to your project's `.claude/plugins.json`:
   "plugins": [
     {
       "name": "sre-discipline",
-      "source": "noisedeck/sre-discipline"
+      "source": "noisefactorllc/sre-discipline"
     }
   ]
 }
