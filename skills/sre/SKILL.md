@@ -195,8 +195,9 @@ Did the change affect anything you didn't expect? Check:
 Before declaring the work complete:
 
 - [ ] **All changes committed to version control** — no uncommitted files on any server
-- [ ] **Change survives a reboot** — would a `docker compose up -d` from scratch reproduce the current state?
+- [ ] **Change survives a reboot** — would a `docker compose up -d` from scratch reproduce the current state? If you migrated infrastructure, test it: `docker compose down && docker compose up -d` on at least one target.
 - [ ] **Change survives container recreation** — all env vars, volumes, and config in persistent files
+- [ ] **No stale resources left running** — running containers mask stale configuration until the next restart. After any migration, verify every container on every affected host is on the correct network/config.
 - [ ] **No manual state left on servers** — nothing done via SSH that isn't in a committed repo
 - [ ] **No ephemeral solutions** — no temporary keys, passwords, workarounds, or "we'll fix this later" hacks
 - [ ] **Monitoring covers the new state** — health checks and alerts reflect the current architecture

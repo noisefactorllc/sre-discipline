@@ -11,8 +11,63 @@ Add these to your Phase 2 checklist when the operation involves firewalls or net
 - [ ] **Container-to-container communication verified** — confirm the Docker bridge network will not be affected
 - [ ] **Testing on ONE server first** — apply the rule to one non-critical server, verify for 24 hours, then roll
 - [ ] **Rule persistence verified** — iptables rules vanish on reboot unless persisted via `iptables-persistent` or equivalent
+- [ ] **systemd dependencies reviewed** — if adding or modifying systemd drop-ins, verify no `Requires=` on non-essential services
+- [ ] **ufw rule files validated** — all rules inside a `*filter`/`COMMIT` block, no orphans after final `COMMIT`
 
 ## Traps
+
+### systemd dependency chains can kill Docker at boot
+
+If Docker's systemd unit has `Requires=<dependency>.service` and that dependency fails to start, systemd cancels Docker's start job entirely. No containers start. No error is visible unless you read the journal.
+
+**Never use `Requires=` for services that Docker doesn't strictly need to function.** Docker manages its own iptables chains and does not need the host firewall service. Use `Wants=` + `After=` to express ordering preferences without creating fatal coupling:
+
+```ini
+# WRONG — if the firewall fails, Docker dies
+[Unit]
+After=ufw.service
+Requires=ufw.service
+
+# RIGHT — Docker starts after the firewall if possible, but starts regardless
+[Unit]
+After=ufw.service
+Wants=ufw.service
+```
+
+This is especially dangerous because the dependency failure may be latent — everything works until the next reboot, when the dependent service fails to start for the first time and takes Docker down with it. The outage can last hours if no boot-time monitoring exists.
+
+**General rule:** Before adding any systemd dependency, ask: "If this dependency fails, should the dependent service also die?" If the answer is no, use `Wants=`, not `Requires=`.
+
+### Orphaned rules in ufw after.rules
+
+Custom iptables rules added to `/etc/ufw/after.rules` **must** be inside a `*filter` / `COMMIT` block. Rules placed after the final `COMMIT` statement are orphaned — `iptables-restore` doesn't know which table they belong to and fails with a syntax error.
+
+The insidious part: orphaned rules are invisible during normal operation. When ufw is reloaded (`ufw reload`), the kernel already has the filter table loaded, so the restore is incremental and the orphaned rule is silently ignored. On cold boot, `iptables-restore` runs against an empty kernel state, hits the orphaned rule, and fails — taking the entire firewall service down.
+
+```bash
+# WRONG — rule is outside any *filter/COMMIT block
+*filter
+...
+COMMIT
+
+# This rule has no table context — fatal on cold boot
+-A DOCKER-USER -p tcp --dport 25 -j RETURN
+```
+
+```bash
+# RIGHT — rule is inside the *filter/COMMIT block
+*filter
+...
+-A DOCKER-USER -p tcp --dport 25 -j RETURN
+COMMIT
+```
+
+**After any edit to ufw rule files, verify cold-load integrity:**
+
+```bash
+# Simulate cold load (tests iptables-restore parsing)
+iptables-restore --test < /etc/ufw/after.rules
+```
 
 ### ufw does not control Docker-published ports
 

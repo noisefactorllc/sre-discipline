@@ -10,6 +10,8 @@ Add these to your Phase 2 checklist when the operation involves containers:
 - [ ] **Volume mounts documented** — `docker inspect <name> --format '{{.Mounts}}'`. Capture every mount before any container recreation.
 - [ ] **Container name matches references** — Caddyfile entries, proxy configs, and other containers may reference this container by name on the Docker network. Verify the name won't change.
 - [ ] **Docker network will not be modified** — if the operation touches Docker networks, see the Network Integrity section below.
+- [ ] **Health checks verify the full path** — `/up` endpoints must check backend reachability, not just return 200 from a proxy layer
+- [ ] **Reboot resilience considered** — if migrating infrastructure, plan to verify with `docker compose down && up -d` on at least one target
 
 ## Traps
 
@@ -49,6 +51,31 @@ docker compose ps --format '{{.Name}}'
 ```
 
 Remove rogue containers immediately. They are invisible outages.
+
+### Running containers mask stale configuration
+
+After any migration (network rename, orchestrator change, compose restructure), containers that were already running keep their old configuration. They appear healthy because they never needed to restart. The first reboot, OOM kill, or crash reveals the truth: the container can't start because the resource it depends on (old network, old volume, old name) no longer exists.
+
+This is a time bomb. The migration "succeeds" and may run for days or weeks until something triggers a container restart, at which point it fails permanently.
+
+**After any infrastructure migration, test reboot resilience on at least one target:**
+
+```bash
+# Simulate a reboot — tears down and recreates all containers from config
+docker compose down && docker compose up -d
+
+# Verify everything came back
+docker compose ps
+```
+
+**After migration, verify EVERY container on EVERY affected host:**
+
+```bash
+# Check which network each container is on
+docker inspect --format '{{.Name}}: {{range $net, $_ := .NetworkSettings.Networks}}{{$net}} {{end}}' $(docker ps -q)
+
+# Anything referencing a dead network is a time bomb
+```
 
 ### Environment variable loss
 
@@ -115,6 +142,7 @@ diff <(docker ps --format '{{.Names}}' | sort) <(docker compose ps --format '{{.
 
 - **Never build images on production servers.** All images are built in CI and pulled at runtime. Building on the server means the image isn't reproducible, isn't versioned, and can't be rolled back.
 - **All containers must use `env_file` in Compose** (not inline environment variables in CI scripts or `-e` flags). The env file on the server is the single source of truth for secrets.
+- **Never edit files directly on servers.** All configuration and code changes must be made in the source-of-truth repo and deployed via CI. SSH-editing a config file on a server is non-reproducible — CI will overwrite it on the next deploy, creating invisible state drift with no git history and no rollback path. If it's not committed, it doesn't exist.
 - **Every deployment must be rollback-capable.** Know the exact command to roll back before deploying:
 
 ```bash
@@ -122,3 +150,35 @@ diff <(docker ps --format '{{.Names}}' | sort) <(docker compose ps --format '{{.
 docker compose pull <service>  # with previous tag in compose file
 docker compose up -d <service>
 ```
+
+### The deploy didn't deploy
+
+A deploy pipeline can report success while the running container still serves old code. This is the most common post-deploy failure mode. Causes:
+
+- **Docker build cache:** The image layer cache serves a stale build despite source changes. The image tag updates, but the binary inside is unchanged.
+- **`docker compose start` vs `up -d`:** `start` reuses the existing container without pulling or recreating. `up -d` recreates containers whose configuration changed. If your deploy script uses `start`, it doesn't deploy.
+- **Volume-mounted config from a stale checkout:** If a container mounts config from a git checkout on the server, and the deploy didn't `git pull` that checkout before recreating the container, the container starts with old config.
+- **Compose environment block vs env_file:** Adding a variable to an `.env` file has no effect if the compose file uses an `environment:` block that doesn't reference it. The variable exists on disk but never enters the container.
+
+**After EVERY deploy, verify the new code is running:**
+
+```bash
+# Check container creation time — was it actually recreated?
+docker inspect <name> --format '{{.Created}}'
+
+# Check a known change is present in the running container
+docker exec <name> grep '<key_change>' <file>
+
+# Check the image hash matches what CI built
+docker inspect <name> --format '{{.Image}}'
+```
+
+If the deploy pipeline ran but the container wasn't recreated, **the deploy did not deploy.**
+
+### False-positive health checks
+
+A health check endpoint that returns 200 when the service is broken is worse than no health check — it actively masks outages.
+
+Common cause: a reverse proxy or auth layer exposes `/up` and returns 200 based on its own health, but the backend it proxies to is unreachable. The health check passes while every real request returns 502.
+
+**Health checks must verify the full request path**, not just that one layer is alive. If a service proxies to a backend, the health check must confirm the backend is reachable. If it can't do that, the health check is lying.
