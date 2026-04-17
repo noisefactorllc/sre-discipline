@@ -1,5 +1,7 @@
 # SRE Discipline
 
+*NOTE* This plugin won't keep Claude from going off the rails and blowing away production. Nothing can do that. But if you're already using Claude for prod, you've already crossed over into madness anyway. This plugin will help.
+
 A Claude Code plugin that enforces battle-tested SRE operational discipline for infrastructure work.
 
 When activated, it guides Claude through a rigorous checklist procedure for deployments, rollbacks, migrations, cache invalidation, certificate management, DNS changes, firewall rules, container orchestration, and incident response.
