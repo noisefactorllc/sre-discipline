@@ -3,6 +3,9 @@
   "owner": {
     "name": "Noise Factor LLC"
   },
+  "metadata": {
+    "description": "Claude Code plugins from Noise Factor — battle-tested tools for SRE and infrastructure work"
+  },
   "plugins": [
     {
       "name": "sre-discipline",

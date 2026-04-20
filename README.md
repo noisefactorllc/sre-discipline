@@ -19,19 +19,25 @@ Every rule in this procedure exists because someone learned it the hard way.
 ## Install
 
 ```
-/plugins install sre-discipline
+/plugin marketplace add noisefactorllc/sre-discipline
+/plugin install sre-discipline@noisefactor
 ```
 
-Or add to your project's `.claude/plugins.json`:
+Or require it for your team by adding to `.claude/settings.json`:
 
 ```json
 {
-  "plugins": [
-    {
-      "name": "sre-discipline",
-      "source": "noisefactorllc/sre-discipline"
+  "extraKnownMarketplaces": {
+    "noisefactor": {
+      "source": {
+        "source": "github",
+        "repo": "noisefactorllc/sre-discipline"
+      }
     }
-  ]
+  },
+  "enabledPlugins": {
+    "sre-discipline@noisefactor": true
+  }
 }
 ```
 
