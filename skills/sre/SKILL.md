@@ -45,6 +45,8 @@ Identify everything that will persist through or be invalidated by this change:
 - **Cache layers**: Browser cache, CDN edge caches, reverse proxy cache, DNS resolver cache
 - **TTLs**: How long will stale data persist if not actively invalidated?
 - **Secrets/credentials**: Are any secrets only in running containers (not in persistent env files)?
+- **Shared-state structure**: Does this change require new database columns, new config fields, new env vars, or new secrets? If so, the requirement must exist in production BEFORE the new code can run — see `references/migrations.md`.
+- **Configuration source of truth**: Are the configs this change touches actually in a tracked repo, or do they live only on the server? If they're not tracked, you can't audit or validate them at PR time — see `references/configurations.md`.
 
 Load the relevant reference doc(s) based on what domains this change touches:
 
@@ -55,6 +57,8 @@ Load the relevant reference doc(s) based on what domains this change touches:
 | DNS records, domain routing | `references/dns.md` |
 | CDN, proxy cache, static assets, TTLs | `references/caching.md` |
 | Firewalls, iptables, network security | `references/firewalls.md` |
+| Database schemas, config fields, env vars (new requirements on shared state) | `references/migrations.md` |
+| Application config files (JSON/YAML/env), secret templating, drift detection | `references/configurations.md` |
 
 Read each relevant reference doc now. They contain domain-specific checklist items and traps that you must incorporate into Phase 2.
 
@@ -82,7 +86,9 @@ This is the gate. Every box must be checked before you execute.
 - [ ] **Cached/stateful resources identified** — know what persists, what invalidates, what TTLs apply
 - [ ] **Rollback procedure documented** — exact commands, not just "revert the change"
 - [ ] **Starting with ONE non-critical target** — never apply to all targets simultaneously
-- [ ] **All config changes are in version control** — no manual edits on servers that aren't in a committed repo
+- [ ] **All configs live in version control** — not just "edits go through the repo"; every config that affects runtime behavior is itself a tracked file. Configs that exist only on a server are a latent incident and must be brought into the repo before this work starts
+- [ ] **Pre-merge validation gates the deploy** — a CI lint walks every config and refuses to merge if any required field is missing, gating all deploy jobs behind it
+- [ ] **New shared-state requirements landed first** — if the deploying version reads new DB columns, new config fields, or new env vars, those changes are already applied to production and verified BEFORE the new code can run
 - [ ] **Environment variables verified in persistent files** — not just in running containers
 - [ ] **Monitoring baseline captured** — know what "green" looks like before you change anything
 
