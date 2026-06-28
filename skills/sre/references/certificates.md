@@ -83,5 +83,6 @@ Monitor certificate expiration on every endpoint at least daily. Alert with 14+ 
 
 ```bash
 # Quick expiry check (returns days until expiry)
-echo | openssl s_client -servername <domain> -connect <domain>:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2 | xargs -I{} date -d {} +%s | xargs -I{} echo $(( ({} - $(date +%s)) / 86400 )) days
+exp=$(echo | openssl s_client -servername <domain> -connect <domain>:443 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)
+echo $(( ($(date -d "$exp" +%s) - $(date +%s)) / 86400 )) days
 ```
