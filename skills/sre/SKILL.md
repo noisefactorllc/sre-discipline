@@ -59,6 +59,10 @@ Load the relevant reference doc(s) based on what domains this change touches:
 | Firewalls, iptables, network security | `references/firewalls.md` |
 | Database schemas, config fields, env vars (new requirements on shared state) | `references/migrations.md` |
 | Application config files (JSON/YAML/env), secret templating, drift detection | `references/configurations.md` |
+| CI/CD pipelines, what a commit triggers, what a push carries, deploys that half-apply | `references/deployments.md` |
+| Cron jobs, systemd timers, renewal loops, retention sweeps, unattended maintenance | `references/scheduled-jobs.md` |
+| Uptime checks, alert thresholds, maintenance windows, retiring a monitor | `references/monitoring.md` |
+| Proving the change worked (always: read this before you write any verification command) | `references/verification.md` |
 
 Read each relevant reference doc now. They contain domain-specific checklist items and traps that you must incorporate into Phase 2.
 
@@ -91,6 +95,8 @@ This is the gate. Every box must be checked before you execute.
 - [ ] **New shared-state requirements landed first** — if the deploying version reads new DB columns, new config fields, or new env vars, those changes are already applied to production and verified BEFORE the new code can run
 - [ ] **Environment variables verified in persistent files** — not just in running containers
 - [ ] **Monitoring baseline captured** — know what "green" looks like before you change anything
+- [ ] **Verification plan can actually fail** — you know which command proves the change worked, the exit status comes from the tool itself rather than a pipe or a login shell, and the evidence comes from the deployed side rather than your local checkout. See `references/verification.md`
+- [ ] **Trigger set known** — if this ships through CI, you know exactly which pipelines the commit fires and every one of them is intended. See `references/deployments.md`
 
 ### Domain-specific checklist items:
 
@@ -125,6 +131,8 @@ Run the specific verification commands for this change. Do not rely on "it looks
 - **TLS**: Verify the certificate served matches expectations (check domain, expiry, issuer)
 - **DNS**: Query from an external resolver, not the local cache
 - **Cache**: Check `X-Cache-Status` headers, verify from multiple edges if applicable
+
+The instrument lies more often than people expect. A pipeline's exit code belongs to the last command in the pipe, an SSH heredoc's status can be rewritten by the remote login shell, a single-packet ping invents outages, and a filtered query returning empty is not proof of absence. If any verification here is load-bearing, read `references/verification.md` before you trust its output.
 
 ### Step 3.3: Wait for propagation
 
@@ -186,6 +194,8 @@ If you find stale resources, remove them now. Stale containers are invisible out
 ### Step 4.3: Confirm monitoring is green
 
 Check that all health checks and monitors are passing. If any are in a degraded or alerting state, investigate before moving on — you may have introduced a subtle regression.
+
+If the change added a service, an endpoint that external systems call, or a new failure mode, it needs monitoring coverage before the work is done. If it suppressed alerts for a maintenance window, that suppression has to be lifted. See `references/monitoring.md`.
 
 ### Step 4.4: Check for unintended side effects
 

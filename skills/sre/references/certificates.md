@@ -34,6 +34,23 @@ HTTP-01 ACME challenges require the certificate authority to reach the requestin
 certbot certonly --dns-route53 -d example.com
 ```
 
+### Renewed on disk is not served
+
+Servers load certificates into memory at start and keep serving what they loaded. A renewal job that writes a fresh certificate to disk changes nothing for users until the process reloads, so a host that has been up for a week keeps serving the old certificate right through expiry. Every renewal mechanism needs a matching reload, and every check must inspect the served certificate rather than the file.
+
+```bash
+# Reload on a schedule alongside the renewal loop (nginx container)
+command: /bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g "daemon off;"'
+
+# Or reload from the renewal hook only when the serial changes
+```
+
+### Two renewers on one state directory
+
+Two processes managing the same `/etc/letsencrypt` (a container renewal loop plus a host cron, for example) race on the lockfile. One fails with "Another instance of Certbot is already running" and stops renewing silently, while the other's logs look healthy. Exactly one process owns the state directory, and when consolidating, confirm the survivor has the plugin it needs: a base certbot image cannot renew DNS-01 certificates and only discovers that at renewal time.
+
+More traps for unattended renewal (timezone pinning, the random delay before non-interactive renewals act, deploys that trigger the job) are in `scheduled-jobs.md`.
+
 ### Multi-region certificate gaps
 
 When serving content from multiple edge nodes, every edge must have its own valid certificate for every domain it serves. A CDN edge serving the wrong certificate (or an expired one) causes intermittent errors that depend on which edge the user hits.

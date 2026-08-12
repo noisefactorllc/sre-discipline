@@ -12,7 +12,7 @@ Every rule in this procedure exists because someone learned it the hard way.
 
 - **Classifies operations** as planned work or active incidents, with different procedures for each
 - **Enforces a 5-phase checklist**: Research, Pre-flight, Execution, Short-term follow-through, Long-term follow-through
-- **Loads domain-specific references** for containers, certificates, DNS, caching, firewalls, migrations, and configurations
+- **Loads domain-specific references** for containers, certificates, DNS, caching, firewalls, migrations, configurations, deployment pipelines, scheduled jobs, and monitoring
 - **Blocks common anti-patterns**: fix cascading, commit thrashing, scope creep, premature rollback
 - **Requires verification** before and after every change
 
@@ -67,6 +67,10 @@ The plugin includes domain-specific reference documents that are loaded contextu
 | `firewalls.md` | ufw vs Docker iptables, DOCKER-USER chain, rule persistence |
 | `migrations.md` | Shared-state sequencing, additive-first changes, backfill traps |
 | `configurations.md` | Config-as-code, secret templating, drift detection, schema lint |
+| `deployments.md` | What a commit triggers, what a push carries, deploys that half-apply or falsely go green |
+| `scheduled-jobs.md` | Cron and timer discipline, timezone pinning, fail-closed guards, retention sweeps |
+| `monitoring.md` | Hysteresis, monitor history that cannot be rebuilt, webhook coverage, maintenance windows |
+| `verification.md` | Instruments that lie: masked exit codes, under-specified probes, stale negative assertions |
 | `incidents.md` | Incident response procedure, anti-patterns that escalate outages |
 
 ## License

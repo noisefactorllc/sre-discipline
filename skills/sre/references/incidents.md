@@ -135,6 +135,7 @@ After the incident is resolved and the immediate pressure is off:
 
 1. **Document what happened** — what broke, what caused it, what fixed it
 2. **Identify the root cause** — not just the proximate cause ("the config was wrong") but the systemic cause ("we don't validate configs before deploying")
-3. **Identify prevention measures** — what would prevent this class of incident in the future?
-4. **Review infrastructure changes made during the incident.** Changes made under time pressure often introduce new failure modes. A systemd dependency added to "fix boot ordering" may create a fatal cascade. A firewall rule added to "stop the bleeding" may orphan traffic. Every change made during incident response deserves a cold-eyed review after the pressure is off — treat them as provisional until reviewed.
-5. **Return to the normal 5-phase procedure** for any follow-up work
+3. **Do not publish an unproven mechanism as the cause.** A plausible story that fits the timeline is not a root cause. Confirm the mechanism against unit configuration, log timestamps, and the actual invocation source before naming it in anything the team reads. A wrong root cause is worse than an open question: it ends the investigation while the real defect stays in place, and it has to be retracted later.
+4. **Identify prevention measures** — what would prevent this class of incident in the future?
+5. **Review infrastructure changes made during the incident.** Changes made under time pressure often introduce new failure modes. A systemd dependency added to "fix boot ordering" may create a fatal cascade. A firewall rule added to "stop the bleeding" may orphan traffic. Every change made during incident response deserves a cold-eyed review after the pressure is off — treat them as provisional until reviewed.
+6. **Return to the normal 5-phase procedure** for any follow-up work

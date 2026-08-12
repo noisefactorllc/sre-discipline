@@ -77,6 +77,19 @@ docker inspect --format '{{.Name}}: {{range $net, $_ := .NetworkSettings.Network
 # Anything referencing a dead network is a time bomb
 ```
 
+### Storage that prune cannot see
+
+`docker system prune` cannot look inside a volume. When a self-hosted registry keeps its blob store in a named volume, every CI push adds layers and the disk climbs steadily while prune reclaims essentially nothing. The obvious reading of that evidence ("nothing is reclaimable, so the disk is too small") is wrong, and expanding the disk buys time against a growth rate rather than fixing anything.
+
+```bash
+# Prune reports near-zero reclaimable while the disk is full: look in the volumes
+df -h /
+du -sh /var/lib/docker/volumes/* 2>/dev/null | sort -h | tail -10
+docker system df -v | head -30
+```
+
+The fix is a retention policy at the application layer: trim tags on a schedule (keep the newest N, keep the last M days, and keep every digest currently running anywhere in the fleet), then run the store's own garbage collection. Everything trimmed must be rebuildable from CI. Do not run the sweep while a build or deploy is pushing. See `scheduled-jobs.md`.
+
 ### Environment variable loss
 
 The most common cause of post-recreation breakage: a container was originally started with `-e VAR=value` flags that exist only in shell history, not in any file. On recreation, those variables are gone and the service breaks in subtle ways.
