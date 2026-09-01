@@ -1,3 +1,8 @@
+<!-- repo-hero -->
+<a href="https://noisefactor.io/"><img src="docs/hero.jpg" alt="SRE Discipline Claude Code plugin for operational discipline" width="100%"></a>
+
+<sub>Open source from <a href="https://noisefactor.io">Noise Factor</a> &middot; <a href="https://github.com/noisefactorllc">more projects</a></sub>
+
 # SRE Discipline
 
 *NOTE* This plugin won't keep Claude from going off the rails and blowing away production. Nothing can do that. But if you're already using Claude for prod, you've already crossed over into madness anyway. This plugin will help.
