@@ -1,6 +1,6 @@
 # Deployments Reference
 
-Domain-specific traps, diagnostic commands, and checklist items for the pipeline that ships the change: what a commit triggers, what a push carries, and how a deploy can go red or green while leaving production in a state neither result describes.
+This reference covers traps, diagnostic commands, and checklists for deployment pipelines. It explains commit triggers, push ancestry, and deployments whose reported result differs from production state.
 
 `containers.md` covers what happens to the container once the pipeline reaches it. This doc covers everything before that point.
 
@@ -9,7 +9,7 @@ Domain-specific traps, diagnostic commands, and checklist items for the pipeline
 Add these to your Phase 2 checklist when the operation goes through CI/CD:
 
 - [ ] **Trigger set computed**: you know exactly which pipelines this commit fires, and you want all of them to run
-- [ ] **Functional change separated from mechanical cleanup**: a sweeping edit across many pipeline files is its own commit, pushed when its fan-out is acceptable
+- [ ] **Functional change separated from mechanical cleanup**: Keep broad pipeline cleanup in a separate commit. Push it when its downstream effects are acceptable.
 - [ ] **Push ancestry checked**: in any shared checkout, every commit that will land is yours or approved
 - [ ] **Step ordering reviewed**: the reload or restart happens after the copy, so a failed copy leaves the process running old state
 - [ ] **Every step fails loud or is explicitly advisory**: see `verification.md`
@@ -20,21 +20,21 @@ Add these to your Phase 2 checklist when the operation goes through CI/CD:
 
 ### Editing the pipeline is deploying
 
-Deploy workflows commonly path-trigger on their own filename, so editing a workflow file IS a trigger for whatever that workflow deploys. A single tidy-up commit that strips a dead step from sixteen workflow files fires thirteen simultaneous production deploys of code that did not change, behind a cleanup with zero functional effect.
+Deployment workflows commonly trigger on changes to their own filenames. Editing a workflow can therefore deploy everything that workflow controls. For example, removing a dead step from sixteen workflows can trigger thirteen simultaneous production deployments. The cleanup changes no functional code.
 
-Before committing multi-pipeline edits, compute the trigger set: for each changed pipeline file, read its path filters and glob-match them against the full changed-file list. Then decide deliberately whether that fan-out is wanted.
+Before committing changes to multiple pipelines, determine every trigger. Read each changed workflow's path filters. Match those filters against the full changed-file list. Then decide whether all resulting runs are wanted.
 
-Prefer: the functional change in one commit scoped to the files that carry it, and the mechanical sweep in a separate commit pushed when a wave of no-op deploys is acceptable. Cleanup that touches many pipelines can also simply be left to ride along with each pipeline's next natural change.
+Prefer one commit for the functional change, limited to the necessary files. Keep mechanical cleanup in a separate commit. Push that commit when deployments without functional changes are acceptable. Alternatively, include each cleanup with the next planned change to its pipeline.
 
 A dead endpoint called by a soft-failing step (`curl ... || echo "warning"`) is cleanup, not an incident. It does not justify a fan-out.
 
 ### Path filters do not apply to every push
 
-Path filtering compares against a base. A push that creates a new branch may have no base to diff against, so filtered jobs run that you expected to be skipped. Do not rely on path filters as a safety mechanism for "this won't deploy anything"; rely on knowing what the pipeline does when it runs.
+Path filtering compares against a base. A new branch push may have no base, so jobs that you expected to skip can run. Do not rely on path filters alone to prevent deployments. Know what each pipeline does when it runs.
 
 ### Pushing a SHA pushes its ancestors
 
-`git push origin <sha>:<branch>` pushes that commit and every ancestor it has. In a checkout shared by several people or several agent sessions, a rebase can order someone else's unpushed commit below yours, and pushing your approved SHA carries theirs to the remote as well.
+`git push origin <sha>:<branch>` pushes that commit and every ancestor. In a shared checkout, a rebase can place another person's unpushed commit below yours. Pushing your approved SHA then also pushes their commit.
 
 ```bash
 # Before any push in a shared checkout: what is actually about to land?
@@ -48,12 +48,12 @@ git rebase --onto origin/<branch> <foreign-sha>
 
 ### A red deploy that half-applied
 
-A pipeline that fails partway leaves whatever the earlier steps did. The dangerous version: a file-sync step fails after writing the new files, and the restart step that would load them is skipped. The new configuration sits on disk, the process keeps running the old one, and the red X reads as "nothing happened" when the truth is "the change landed and was never loaded".
+A pipeline failure leaves the effects of earlier steps in place. A file-sync step can write new files and then fail. The pipeline skips the restart that would load those files. The new configuration exists on disk, but the process still runs the old configuration. A failure result does not mean that nothing changed.
 
-The common concrete cause is a sync with `--delete` running as an unprivileged user against state written by a root process inside the container (uploads, caches, generated data). rsync cannot remove the root-owned tree, exits non-zero, and everything downstream is skipped.
+A common cause is an unprivileged `--delete` sync against container state that a root process wrote, such as uploads or caches. rsync cannot remove the root-owned tree and exits non-zero. The pipeline then skips later steps.
 
-- Exclude live runtime state from any `--delete` sync, or invert to an explicit include list of repo-owned paths. Chasing this with one new exclusion per incident is whack-a-mole: the third occurrence is the signal to invert.
-- On any red deploy, determine which step failed before concluding the change is not live, and check whether the restart ever ran.
+- Exclude live runtime state from any `--delete` sync, or use an explicit list of repo-owned paths. Repeated exclusions address each incident separately. By the third occurrence, use the explicit include list.
+- On a failed deployment, identify the failed step before concluding that the change is not live. Check whether the restart ran.
 
 ```bash
 # Did the process actually restart after the commit landed?
@@ -63,19 +63,19 @@ git show -s --format=%cI <sha>
 
 ### A green deploy that did nothing
 
-The mirror image. A remote script run through a CI action that does not set `-e` continues past its first failure, and the job reports success. A `chmod +x` on a tracked script during an earlier deploy creates a file-mode diff that blocks the next `git pull` ("Your local changes would be overwritten by merge"), so the checkout stays frozen at an old commit while every subsequent deploy goes green.
+A remote CI script without `-e` can continue after its first failure and report success. An earlier deployment may run `chmod +x` on a tracked script. The resulting file-mode difference blocks the next `git pull` with "Your local changes would be overwritten by merge". The checkout remains at an old commit while later deployments report success.
 
-- Commit scripts with the executable bit set rather than chmod-ing them at deploy time, or `git checkout -- <file>` before pulling.
-- Make the remote script fail loud (`set -euo pipefail`), and end it at EOF rather than with an explicit `exit` (see `verification.md`).
-- Verify the checkout is where you think it is: `git -C <path> rev-parse HEAD` on the server, compared against the remote.
+- Commit scripts with the executable bit set, or run `git checkout -- <file>` before pulling.
+- Make the remote script fail visibly with `set -euo pipefail`. End it at EOF instead of an explicit `exit`. See `verification.md`.
+- Check the checkout is where you think it is: `git -C <path> rev-parse HEAD` on the server, compared against the remote.
 
 ### File modes and ownership travel with the sync
 
-`rsync -a` preserves source permissions. A directory that is 700 on a developer machine becomes unreadable to the non-root user inside the container after it lands on the server, and the service fails in ways that look like missing files. Normalize modes after copying into a served tree, or set them correctly at the source.
+`rsync -a` preserves source permissions. A directory with mode 700 on a developer machine becomes unreadable to a non-root container user after deployment. The resulting errors can resemble missing files. Normalize modes after copying into a served tree, or set the correct modes at the source.
 
 ### Debugging "why isn't it live" from the wrong place
 
-Covered in full in `verification.md`, repeated here because this is where it bites: the local working tree tells you nothing about a deploy. Use the remote, the CI run, the server checkout, and the live URL.
+The local working tree does not prove what a deployment did. Use the remote, CI run, server checkout, and live URL. See `verification.md`.
 
 ## Diagnostic Commands
 

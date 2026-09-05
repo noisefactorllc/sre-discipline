@@ -2,13 +2,13 @@
 
 Domain-specific traps, diagnostic commands, and checklist items for proving that a change did what you think it did.
 
-Every other reference doc in this skill tells you to verify. This one exists because the verification itself lies more often than people expect. A probe that returns a clean number can be measuring the wrong thing, reporting someone else's exit code, or answering a question you did not ask. An unreliable instrument is worse than no instrument: it converts "I don't know" into a confident false claim, and the operator acts on it.
+Every other reference tells you to check. This reference explains how verification itself can mislead. A probe can measure the wrong target, report another command's exit code, or answer the wrong question. An unreliable instrument converts uncertainty into a false claim. The operator then acts on that claim.
 
 ## Pre-flight Items
 
-Add these to your Phase 2 checklist for any operation you intend to verify (which is all of them):
+Add these to your Phase 2 checklist for any operation you intend to check (which is all of them):
 
-- [ ] **Exit status comes from the tool itself**: not from a pipeline, not from a remote login shell, not from a wrapper that swallows it
+- [ ] **Exit status comes from the tool itself**: A pipeline, remote login shell, or wrapper must not replace that status.
 - [ ] **Probes are specified for the worst case**: multiple attempts, real timeouts, retries on anything cold, sleeping, rebooting, or behind a mesh
 - [ ] **Evidence comes from the deployed layer**: the remote, the live URL, the running container. Never the local working tree
 - [ ] **Absence claims come from unfiltered queries**: a filtered query returning empty is not proof that the thing does not exist
@@ -34,7 +34,7 @@ Where the runner writes its own result artifact (Playwright's `test-results/.las
 
 ### Remote shells rewrite exit codes
 
-An explicit `exit 0` at the end of an SSH heredoc script can return 1 to the client. With `set -e` still active, bash runs `~/.bash_logout` on login-shell exit, and a default logout script that fails without a TTY (Ubuntu's `clear_console -q`) replaces the status you meant to return.
+An explicit `exit 0` at the end of an SSH heredoc can return 1 to the client. With `set -e` active, bash runs `~/.bash_logout` when the login shell exits. A logout command such as Ubuntu's `clear_console -q` can fail without a TTY and replace the intended status.
 
 ```bash
 # WRONG: explicit exit inside a login-shell heredoc under set -e
@@ -59,7 +59,7 @@ The general rule: the status you read must be the status of the thing you ran. A
 
 ### Steps that cannot fail are not gates
 
-`curl -sf https://example.com/health || echo "Warning: health check failed"` always succeeds. So does any remote script run through a CI action that does not set `-e`, where the first command fails and the rest run anyway, and the job goes green. A pipeline full of these reports success for a deploy that did nothing.
+`curl -sf https://example.com/health || echo "Warning: health check failed"` always succeeds. A remote CI script without `-e` can also continue after a failed command and report success. Such pipelines can report a successful deployment when no deployment occurred.
 
 Decide deliberately for each step whether it is a gate (must fail the run) or advisory (must not). Then make the code say so. An advisory step that everyone believes is a gate is the worst of both.
 
@@ -74,7 +74,7 @@ Decide deliberately for each step whether it is a gate (must fail the run) or ad
 
 ### Filtered queries are not absence proofs
 
-A filtered API query returning an empty list means "this filter matched nothing right now", not "the thing does not exist". `gh run list --commit <sha>` has been observed returning `[]` ten minutes after a push while the unfiltered list showed all three runs for that exact head SHA, already complete. Never build a wait loop or an absence claim on a server-side filter.
+A filtered API query that returns an empty list proves only that the filter matched nothing then. In one observed case, `gh run list --commit <sha>` returned `[]` ten minutes after a push. The unfiltered list showed three completed runs for that exact head SHA. Never base a wait loop or absence claim on a server-side filter.
 
 ```bash
 # WRONG: empty result treated as "no runs exist"
@@ -87,25 +87,25 @@ gh run list --limit 50 --json headSha,name,status,conclusion \
 
 ### Local working-tree state is not deploy evidence
 
-When the question is "why isn't my change live", the local checkout is the wrong place to look. In any environment where more than one machine or session pushes, the working tree in front of you reflects neither what was pushed nor what is deployed. An uncommitted file here explains nothing about a change someone pushed from elsewhere, and chasing it burns the investigation.
+The local checkout does not explain why a change is not live. When several machines or sessions push, a local working tree represents neither the pushed commit nor the deployed artifact. An uncommitted local file does not explain a change pushed elsewhere.
 
-Diagnose from authoritative layers only: the remote (`gh api repos/<owner>/<repo>/commits/<sha>`), the CI run logs, the live URL with cache-busting, the running container. Treat the pushed commit on the remote and the deployed artifact as ground truth.
+Diagnose only from authoritative layers: the remote (`gh api repos/<owner>/<repo>/commits/<sha>`), CI logs, live URL with cache-busting, and running container. Treat the remote commit and deployed artifact as ground truth.
 
 ### Negative assertions go stale silently
 
-A check that asserts an absence ("this file never ships", "this variable is not set") encodes a fact about someone else's component, and nothing forces it to track that component's evolution. When the other side changes, the check either stays green while describing a mechanism that no longer exists, or goes red as a tripwire that needs manual cleanup rather than signalling a real defect.
+An absence check, such as "this file never ships" or "this variable is not set", depends on another component. Nothing forces the check to track that component's changes. It can keep passing while describing a mechanism that no longer exists. It can also fail without identifying a real defect, requiring manual cleanup.
 
 Assert the positive contract instead: the file IS shipped at this path, the variable IS set to this canonical value. That fails loudly the moment the mechanism is removed. If an absence genuinely is the contract, pair it with a positive control in the same check so a vacuous pass is impossible.
 
 ### Retries and raised timeouts destroy evidence
 
-Labelling a failure "flaky" ends the investigation, and every fix that raises a number (gate 30s to 120s, cap 300s to 600s, `retries: 2`) buries the signal deeper. Retries are especially corrosive: a masked failure leaves no artifact at all.
+Calling a failure "flaky" ends the investigation. Increasing a limit from 30s to 120s or 300s to 600s can hide the evidence. Adding `retries: 2` can do the same. A failure that retries conceal leaves no artifact.
 
-- Get the controlled comparison first: did this same step pass on previous runs, and does re-running the single failed job on the same commit pass? Same code passing is evidence about the environment, not the product.
+- Obtain a controlled comparison first. Did the same step pass on previous runs? Does the single failed job pass on the same commit when rerun? Identical code passing provides evidence about the environment, not the product.
 - Reproduce on real hardware before theorizing. A step that takes 22s locally and over 12 minutes on a shared runner: that gap IS the finding.
-- Fix diagnosability, never the number. Make the failure dump state (readyState, network log, screenshot, config actually loaded) so the next occurrence starts from evidence instead of a bare stack trace.
+- Improve diagnostics instead of increasing limits. Make failures capture state such as readyState, network logs, screenshots, and the loaded configuration. The next investigation can then start with evidence instead of only a stack trace.
 
-### Verifying from the wrong side of the change
+### Checking from the wrong side of the change
 
 Checking the thing you changed from a position that bypasses the layer you changed proves nothing. This shows up in every domain:
 
@@ -159,4 +159,4 @@ curl -sf "https://<domain>/up" && echo OK || echo FAIL
 ping -c 3 -W 2 <host> || echo "confirmed unreachable after 3 packets"
 ```
 
-Before writing any result the operator will read, ask: could this number be an artifact of how I measured it? If yes, measure again properly before reporting.
+Before reporting a result, consider whether the measurement method could explain it. If so, measure again correctly before reporting.

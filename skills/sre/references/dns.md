@@ -8,14 +8,14 @@ Add these to your Phase 2 checklist when the operation involves DNS:
 
 - [ ] **Current TTL noted** — how long will stale records persist after the change?
 - [ ] **Both A and AAAA records planned** — IPv6-only users (common on mobile) can't reach IPv4-only services
-- [ ] **Old records preserved during migration** — don't delete old records until the new destination is verified AND at least 2x TTL has elapsed
+- [ ] **Old records preserved during migration** — Keep old records until the new destination passes verification and at least 2x TTL elapses.
 - [ ] **TTL lowered in advance** (if migrating) — lower TTL to 300s at least 2x the current TTL before the migration window
 
 ## Traps
 
 ### Missing AAAA records
 
-**Always create both A (IPv4) and AAAA (IPv6) records.** Users on IPv6-only networks (increasingly common on mobile carriers) can't reach IPv4-only services. This is a silent accessibility failure — the service works fine for you on your IPv4 connection while a fraction of users get nothing. You won't see it in your monitoring unless you monitor from IPv6.
+**Always create both A (IPv4) and AAAA (IPv6) records.** Users on IPv6-only networks, increasingly common on mobile carriers, cannot reach IPv4-only services. A service can work on your IPv4 connection while failing for those users. Monitoring will not detect this unless it checks from IPv6.
 
 ### TTL blindness
 
@@ -32,7 +32,7 @@ Before a migration:
 
 Don't delete old DNS records during a migration until you're certain nothing still needs them:
 1. Add the new records first
-2. Verify the new destination works
+2. Check the new destination works
 3. Wait at least 2x the old TTL
 4. Then remove the old records
 
@@ -40,7 +40,7 @@ Deleting old records immediately means any cached resolver still pointing to the
 
 ### Resolver cache confusion
 
-Your local resolver may cache different results than what users see. When verifying DNS changes, query external resolvers directly:
+Your local resolver may cache different results than what users see. When checking DNS changes, query external resolvers directly:
 
 ```bash
 # Query specific public resolvers

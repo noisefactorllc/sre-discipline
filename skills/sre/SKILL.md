@@ -1,12 +1,12 @@
 ---
 name: sre
-description: Battle-tested SRE operational discipline for any infrastructure operation — deployments, rollbacks, migrations, cache invalidation, certificate management, DNS changes, firewall rules, container orchestration, and server maintenance. Use this skill whenever performing ANY operation that touches production systems, Docker containers, reverse proxies, SSL/TLS certificates, CDN caches, DNS records, firewall rules, load balancers, or deployment pipelines. Also use when debugging production incidents, planning infrastructure migrations, or reviewing infrastructure changes. If the task involves servers, containers, networking, or anything that could cause downtime — this skill applies. Even if you think the change is simple.
+description: SRE operational discipline for infrastructure operations. These include deployments, rollbacks, migrations, cache invalidation, certificate management, DNS changes, firewall rules, container orchestration, and server maintenance. Use this skill for ANY operation that touches production systems, Docker containers, reverse proxies, SSL/TLS certificates, or CDN caches. Also use it for operations that touch DNS records, firewall rules, load balancers, or deployment pipelines. Use it when debugging production incidents, planning infrastructure migrations, or reviewing infrastructure changes. This skill applies to tasks involving servers, containers, networking, or anything that could cause downtime. It applies even if the change seems simple.
 user-invocable: false
 ---
 
 # SRE Discipline
 
-You are about to perform infrastructure work. Every rule in this procedure exists because someone learned it the hard way — systems went down, data was lost, or hours were wasted chasing cascading failures that started with one careless change.
+You are about to perform infrastructure work. Each rule addresses failures from a careless change: outages, lost data, or hours spent investigating additional failures.
 
 Follow this procedure exactly. Do not skip steps. Do not reorder steps. The cost of following the checklist is minutes. The cost of skipping it is hours.
 
@@ -15,17 +15,17 @@ Follow this procedure exactly. Do not skip steps. Do not reorder steps. The cost
 Before anything else, classify what you're doing:
 
 - **Planned operation** (deployment, migration, config change, new service) → Follow Phases 1-5 below
-- **Active incident** (something is broken right now, users are affected) → Read `references/incidents.md` and follow its procedure instead
+- **Active incident** (something is broken now and users are affected) → Read `references/incidents.md`. Follow its procedure instead.
 
-If you're unsure, treat it as an incident — the incident procedure is more conservative and that's the right default when things might be broken.
+If you are unsure, treat the operation as an incident. The incident procedure is more conservative when something might be broken.
 
 ## Phase 1: Research
 
-Do not touch anything yet. Understand the situation first.
+Do not change anything yet. Understand the situation first.
 
 ### Step 1.1: What exactly am I changing?
 
-State the change in one sentence. If you can't, the scope is too broad — decompose it.
+State the change in one sentence. If you cannot, divide the scope into smaller changes.
 
 ### Step 1.2: What depends on this?
 
@@ -35,7 +35,7 @@ Enumerate every service, network path, and system that will be affected by this 
 - What proxy routes, DNS records, or load balancer rules reference it?
 - What monitoring or health checks will be affected?
 
-If you don't know, find out. `docker compose ps`, `docker network inspect`, DNS lookups, Caddyfile/nginx config reads, health endpoint checks. Do not guess.
+If you do not know, investigate. Use `docker compose ps`, `docker network inspect`, DNS lookups, proxy configuration files, and health endpoint checks. Do not guess.
 
 ### Step 1.3: What's cached or stateful?
 
@@ -45,8 +45,8 @@ Identify everything that will persist through or be invalidated by this change:
 - **Cache layers**: Browser cache, CDN edge caches, reverse proxy cache, DNS resolver cache
 - **TTLs**: How long will stale data persist if not actively invalidated?
 - **Secrets/credentials**: Are any secrets only in running containers (not in persistent env files)?
-- **Shared-state structure**: Does this change require new database columns, new config fields, new env vars, or new secrets? If so, the requirement must exist in production BEFORE the new code can run — see `references/migrations.md`.
-- **Configuration source of truth**: Are the configs this change touches actually in a tracked repo, or do they live only on the server? If they're not tracked, you can't audit or validate them at PR time — see `references/configurations.md`.
+- **Shared-state structure**: Does the change require new database columns, configuration fields, environment variables, or secrets? These requirements must exist in production BEFORE the new code can run. See `references/migrations.md`.
+- **Configuration source of truth**: Do the affected configurations exist in a tracked repo, or only on the server? Untracked configurations prevent audits and validation at PR time. See `references/configurations.md`.
 
 Load the relevant reference doc(s) based on what domains this change touches:
 
@@ -90,13 +90,13 @@ This is the gate. Every box must be checked before you execute.
 - [ ] **Cached/stateful resources identified** — know what persists, what invalidates, what TTLs apply
 - [ ] **Rollback procedure documented** — exact commands, not just "revert the change"
 - [ ] **Starting with ONE non-critical target** — never apply to all targets simultaneously
-- [ ] **All configs live in version control** — not just "edits go through the repo"; every config that affects runtime behavior is itself a tracked file. Configs that exist only on a server are a latent incident and must be brought into the repo before this work starts
-- [ ] **Pre-merge validation gates the deploy** — a CI lint walks every config and refuses to merge if any required field is missing, gating all deploy jobs behind it
-- [ ] **New shared-state requirements landed first** — if the deploying version reads new DB columns, new config fields, or new env vars, those changes are already applied to production and verified BEFORE the new code can run
-- [ ] **Environment variables verified in persistent files** — not just in running containers
+- [ ] **All configs live in version control** — Every configuration that affects runtime behavior must be a tracked file. Routing edits through the repo is insufficient. Add configurations that exist only on a server to the repo before this work starts.
+- [ ] **Pre-merge validation gates the deploy** — CI lint must check every configuration. It must block merges if any required field is missing. All deployment jobs must depend on this check.
+- [ ] **New shared-state requirements landed first** — The new version may require new database columns, configuration fields, or environment variables. Apply these changes to production BEFORE the new code can run. Check them before that code runs.
+- [ ] **Environment variables checked in persistent files** — not just in running containers
 - [ ] **Monitoring baseline captured** — know what "green" looks like before you change anything
-- [ ] **Verification plan can actually fail** — you know which command proves the change worked, the exit status comes from the tool itself rather than a pipe or a login shell, and the evidence comes from the deployed side rather than your local checkout. See `references/verification.md`
-- [ ] **Trigger set known** — if this ships through CI, you know exactly which pipelines the commit fires and every one of them is intended. See `references/deployments.md`
+- [ ] **Verification plan can actually fail** — Identify the command that proves the change worked. Its exit status must come from the tool itself. A pipe or login shell must not replace that status. Use evidence from the deployed system. See `references/verification.md`.
+- [ ] **Trigger set known** — If CI ships the change, identify every pipeline the commit triggers. Every triggered pipeline must be intentional. See `references/deployments.md`.
 
 ### Domain-specific checklist items:
 
@@ -121,18 +121,18 @@ One change. One verification. Then the next.
 
 Apply the change to your first (non-critical) target only.
 
-### Step 3.2: Verify it worked
+### Step 3.2: Check it worked
 
-Run the specific verification commands for this change. Do not rely on "it looks fine." Verify with explicit commands:
+Run the specific verification commands for this change. Do not rely on "it looks fine." Check with explicit commands:
 
 - **Service health**: `curl -sf https://<domain>/up` or equivalent health endpoint
 - **Container status**: `docker compose ps <service>` — confirm it's running and healthy
-- **Port/network**: `curl` or `nc` from outside the server to verify connectivity
-- **TLS**: Verify the certificate served matches expectations (check domain, expiry, issuer)
+- **Port/network**: `curl` or `nc` from outside the server to check connectivity
+- **TLS**: Check the certificate served matches expectations (check domain, expiry, issuer)
 - **DNS**: Query from an external resolver, not the local cache
-- **Cache**: Check `X-Cache-Status` headers, verify from multiple edges if applicable
+- **Cache**: Check `X-Cache-Status` headers, check from multiple edges if applicable
 
-The instrument lies more often than people expect. A pipeline's exit code belongs to the last command in the pipe, an SSH heredoc's status can be rewritten by the remote login shell, a single-packet ping invents outages, and a filtered query returning empty is not proof of absence. If any verification here is load-bearing, read `references/verification.md` before you trust its output.
+Measurement tools can report misleading results. A pipeline's exit code belongs to its last command. A remote login shell can replace an SSH heredoc's status. A single-packet ping can falsely report an outage. An empty filtered query does not prove absence. Before relying on verification output, read `references/verification.md`.
 
 ### Step 3.3: Wait for propagation
 
@@ -147,15 +147,15 @@ Some changes aren't instant:
 | TLS cert issuance (ACME) | 1-5 minutes |
 | Browser cache | Varies, possibly days |
 
-If propagation applies, wait the appropriate time before verifying.
+If propagation applies, wait the appropriate time before checking.
 
-### Step 3.4: Roll to next target
+### Step 3.4: Proceed to the next target
 
 Only after verification passes on the current target:
 
-1. For high-risk changes: wait 24 hours, monitor, then proceed to the next target
-2. For medium-risk changes: wait through at least one full request cycle, then proceed
-3. For low-risk changes: verify, then proceed
+1. For high-risk changes: monitor for 24 hours before proceeding to the next target.
+2. For medium-risk changes: wait through at least one full request cycle before proceeding.
+3. For low-risk changes: check the current target before proceeding.
 
 Production/primary targets go **last**, always.
 
@@ -167,17 +167,17 @@ Do NOT make additional changes. Do NOT try to fix forward through breakage. Inst
 2. **Assess damage.** What's actually broken? What's still working? What's the user impact?
 3. **Understand the cause.** If you don't understand why it broke, you can't fix it.
 4. **Roll back** to the last known good state if possible.
-5. **If you can't roll back**, make ONE targeted fix. Verify. Then reassess whether to continue or abort.
+5. **If you cannot roll back**, make ONE targeted fix. Check the result. Then reassess whether to continue or abort.
 
 Switch to the incident procedure (`references/incidents.md`) if the breakage is user-facing.
 
 ## Phase 4: Short-term Follow-through
 
-The change is applied and verified. Now clean up.
+The change is applied and checked. Now remove stale resources.
 
-### Step 4.1: Verify from outside
+### Step 4.1: Check from outside
 
-Check the change from an external perspective — not from the server, not from your local machine's cached state. Use external monitoring, different DNS resolvers, different network paths.
+Check the change from outside the server and your local machine's cached state. Use external monitoring, different DNS resolvers, and different network paths.
 
 ### Step 4.2: Garbage collect
 
@@ -195,7 +195,7 @@ If you find stale resources, remove them now. Stale containers are invisible out
 
 Check that all health checks and monitors are passing. If any are in a degraded or alerting state, investigate before moving on — you may have introduced a subtle regression.
 
-If the change added a service, an endpoint that external systems call, or a new failure mode, it needs monitoring coverage before the work is done. If it suppressed alerts for a maintenance window, that suppression has to be lifted. See `references/monitoring.md`.
+If the change added a service, an externally called endpoint, or a failure mode, add monitoring before completing the work. If you suppressed alerts for maintenance, remove that suppression. See `references/monitoring.md`.
 
 ### Step 4.4: Check for unintended side effects
 
@@ -213,11 +213,11 @@ Before declaring the work complete:
 - [ ] **All changes committed to version control** — no uncommitted files on any server
 - [ ] **Change survives a reboot** — would a `docker compose up -d` from scratch reproduce the current state? If you migrated infrastructure, test it: `docker compose down && docker compose up -d` on at least one target.
 - [ ] **Change survives container recreation** — all env vars, volumes, and config in persistent files
-- [ ] **No stale resources left running** — running containers mask stale configuration until the next restart. After any migration, verify every container on every affected host is on the correct network/config.
+- [ ] **No stale resources left running** — running containers mask stale configuration until the next restart. After any migration, check every container on every affected host is on the correct network/config.
 - [ ] **No manual state left on servers** — nothing done via SSH that isn't in a committed repo
 - [ ] **No ephemeral solutions** — no temporary keys, passwords, workarounds, or "we'll fix this later" hacks
 - [ ] **Monitoring covers the new state** — health checks and alerts reflect the current architecture
-- [ ] **Rollback tested** — you have actually verified the rollback procedure works, not just documented it
+- [ ] **Rollback tested** — you have actually checked the rollback procedure works, not just documented it
 - [ ] **Stale resources cleaned up** — no orphaned containers, DNS records, proxy routes, or firewall rules
 - [ ] **Documentation updated** — runbooks, README, or config docs reflect the new state if applicable
 

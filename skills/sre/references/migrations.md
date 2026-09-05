@@ -1,30 +1,30 @@
 # Migrations Reference
 
-Domain-specific traps, diagnostic commands, and checklist items for any deploy that changes the structure of shared state — database schemas, config schemas, environment variables, secrets, or anything else the application reads at startup or runtime.
+This reference covers traps, diagnostic commands, and checklists for deployments that change shared-state structure. This includes database schemas, configuration schemas, environment variables, secrets, and other state the application reads at startup or runtime.
 
 ## Pre-flight Items
 
 Add these to your Phase 2 checklist when the operation introduces a new requirement on shared state:
 
-- [ ] **New required structure identified** — list every new field, column, env var, or secret the deploying version needs to find when it starts up
-- [ ] **Shared state already has it** — verify the requirement is satisfied in production BEFORE the new code can run. `psql -c "\d <table>"`, `grep -L '<field>' configs/`, `docker inspect <name> --format '{{.Config.Env}}'`
+- [ ] **New required structure identified** — List each new field, column, environment variable, or secret that the deploying version requires at startup.
+- [ ] **Shared state already has it** — check the requirement is satisfied in production BEFORE the new code can run. `psql -c "\d <table>"`, `grep -L '<field>' configs/`, `docker inspect <name> --format '{{.Config.Env}}'`
 - [ ] **Backward-compatible during overlap** — the new structure must not break the currently-deployed version. Additive changes only (new columns, new fields, new vars) until the old version is fully retired
-- [ ] **Forward sequencing planned** — if dropping legacy structure is part of the work, that's a SECOND deploy after the new code is stable; not the same change
-- [ ] **Pre-merge validation in place** — a CI gate that walks the source-of-truth files and refuses to merge if a required field is missing (see `configurations.md`)
-- [ ] **Rollback for the migration itself** — schema migrations are state changes, not code; their rollback is a separate plan from the app rollback
+- [ ] **Forward sequencing planned** — Remove legacy structure in a SECOND deployment, after the new code is stable.
+- [ ] **Pre-merge validation in place** — CI must check source-of-truth files. It must block merges if a required field is missing. See `configurations.md`.
+- [ ] **Rollback for the migration itself** — Schema migrations change state. Plan their rollback separately from the application rollback.
 
 ## Traps
 
 ### Deploying code that requires shape it can't find
 
-The most common version of this trap: a new app version enforces a new required field at startup (or assumes a new column exists, or reads a new env var) before the shared state has been updated. The image starts, fails fast, and crash-loops.
+A new application version may require a field, column, or environment variable before shared state contains it. The image starts, fails immediately, and repeatedly restarts.
 
 This breaks two ways:
 
 1. **Image rolled before configs** — the image enforces `field_X`, configs don't have it yet. Every container that mounts the affected configs crash-loops. Fix-forward by adding the field, or rollback the image to a tag that doesn't require it.
 2. **Image rolled before schema** — the image queries a column that hasn't been added yet, or a table that doesn't exist. Same crash-loop, same two fixes.
 
-The fix is sequencing. Update the shared state first, verify, then deploy the code that depends on it.
+Update shared state first. Check the result. Then deploy the code that depends on it.
 
 ### "It worked when I tested locally"
 
@@ -47,11 +47,11 @@ diff /tmp/running-env /tmp/persistent-env
 
 ### One-shot drops bundled with adds
 
-A migration that adds a new column AND drops an old column in the same change is a rolling-deploy hazard. During the rollout, half the containers run the old version (which reads the old column) and half run the new version (which reads the new column). Whichever column got dropped, that half breaks.
+Adding a new column and removing an old column in one migration is unsafe during a rolling deployment. Some containers read the old column while others read the new column. Containers that read the removed column fail.
 
 Split the work:
 
-1. **Migration 1 (additive):** add the new column, backfill it, leave the old column in place.
+1. **Migration 1 (additive):** Add the new column. Backfill it. Keep the old column.
 2. **Deploy the new code** that reads/writes the new column. Old code still works because the old column still exists.
 3. **Soak.** Wait long enough to be confident no rollback to the old code is needed.
 4. **Migration 2 (subtractive):** drop the old column.
@@ -69,12 +69,12 @@ Adding a NOT NULL column with a backfill default looks safe but isn't:
 When backfilling:
 
 1. Add the column as nullable first (or with a default that's known-safe).
-2. Backfill in batches; verify count.
+2. Backfill in batches. Check the count.
 3. THEN tighten the constraint (add NOT NULL, drop the default) in a second migration.
 
 ### Stale legacy fields after migration
 
-Once a new structure is the source of truth, the old structure becomes a trap: it's still there, still readable, still has values, but those values are frozen at pre-migration time. Any code that reads it gets stale data and may make wrong decisions silently.
+After a new structure becomes authoritative, the old structure still contains readable values from before the migration. Code that reads those values gets stale data and may silently make wrong decisions.
 
 After moving to a new structure:
 
@@ -82,7 +82,7 @@ After moving to a new structure:
 2. Rewrite those sites to read the new structure.
 3. After all reads are migrated, drop the old structure (separate deploy).
 
-Don't leave old reads in place "as a fallback." A fallback to stale data is worse than a crash — the crash is loud, the stale data is silent.
+Do not retain old reads as a fallback. A crash is visible. A fallback to stale data can fail silently.
 
 ### Migration touches state from multiple deploys
 
@@ -159,4 +159,4 @@ For any change that affects both shared state and app code:
    at-a-time discipline.
 ```
 
-The single most reliable way to break production with a migration is to skip step 1 and let the new app version land before its required state exists. The single most reliable way to leave a long-tail incident behind is to skip step 5 and leave both structures live forever, with code that reads from one and writes to the other.
+Skipping step 1 lets the new application version reach production before its required state exists. This reliably breaks production. Skipping step 5 leaves both structures indefinitely. Code that reads one and writes the other can cause a persistent incident.

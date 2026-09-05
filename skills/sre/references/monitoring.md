@@ -2,7 +2,7 @@
 
 Domain-specific traps, diagnostic commands, and checklist items for creating, changing, and retiring monitors.
 
-Monitoring changes look low-risk because they touch no production traffic. They are not. A monitor that pages on a blip trains people to ignore alerts, a monitor that never fires hides an outage for days, and a deleted monitor destroys history that cannot be rebuilt.
+Monitoring changes do not affect production traffic, but they still carry risk. Alerts on brief interruptions train people to ignore them. Monitors that never alert can hide outages for days. Deleting a monitor destroys history permanently.
 
 ## Pre-flight Items
 
@@ -29,36 +29,36 @@ Set a non-zero confirmation period on every check. Treat `confirmation_period: 0
 Uptime history is attached to the monitor ID. Deleting a monitor to replace it with a better-configured one destroys every day of accumulated history for that service, permanently, with no restore path. Batch-replacing a set of monitors can wipe months across a whole status page in one command.
 
 - Migrating a check URL, threshold, or region set: PATCH the existing monitor.
-- If the provider refuses to change a field in place (monitor type is commonly immutable), create the new monitor but keep the old one and its status-page binding until the operator has explicitly accepted the history loss.
+- If the provider refuses an in-place field change, create a new monitor. Monitor type is commonly immutable. Keep the old monitor and its status-page binding until the operator explicitly accepts the history loss.
 - Never batch-replace monitors.
 
 ### Webhook endpoints fail silently for days
 
-An endpoint that only external systems call has no user to notice when it breaks. A billing webhook that started returning 500 after a library upgrade was retried silently by the provider for three days, and would have been disabled permanently a week later, had a warning email not surfaced it by luck.
+Only external systems call some endpoints, so no user notices a failure. After a library upgrade, one billing webhook returned 500. The provider silently retried it for three days. Without a warning email, the provider would have permanently disabled it a week later.
 
-Every endpoint that receives external callbacks (payments, VCS hooks, provider notifications) gets a monitor at creation time, in the same session. Probe it the way the provider does and assert the healthy rejection: an unsigned POST to a signature-verifying endpoint should return a specific 4xx, and a 5xx means broken. Check from every region you serve.
+Create a monitor in the same session as each endpoint for external callbacks, including payments, VCS hooks, and provider notifications. Probe it as the provider does. Check the expected healthy rejection. An unsigned POST to a signature-checking endpoint should return a specific 4xx. A 5xx means failure. Check from every region you serve.
 
 ### Cosmetic maintenance notices do not pause anything
 
-Publishing a maintenance report on a status page is a communication artifact. It does not suppress checks, and monitors will still fire during the window. Suppression is a monitor-level setting (maintenance from/to/days) and has to be applied to every monitor AND every heartbeat that the work touches, not just the ones you remember.
+A status-page maintenance report communicates the work. It does not suppress checks or alerts. Apply monitor-level suppression settings (maintenance from/to/days) to every affected monitor and heartbeat.
 
-Verify by dumping the resources back from the API and counting, rather than by trusting the writes to have landed.
+Check by dumping the resources back from the API and counting, rather than by trusting the writes to have landed.
 
 ### Maintenance windows hide real failures
 
-Every minute of suppression is a minute in which a genuine outage does not alert. A weekly 15-minute window across 50 resources is a real, deliberate trade. Keep windows as narrow as the operation needs, scope them to the affected hosts, and remove one-off windows when the work is done.
+Every minute of suppression can hide a real outage. A weekly 15-minute window across 50 resources is a deliberate tradeoff. Limit each window to the time the operation needs. Include only affected hosts. Remove one-off windows when the work ends.
 
 ### Monitoring what is on disk instead of what is served
 
-A renewal job writes a fresh certificate to disk and the file-based check goes green, while the process that serves TLS keeps the old certificate in memory until reloaded. The same shape appears everywhere: config present on disk but not loaded, image pulled but not running, DNS record created but not propagated. Check the served artifact.
+A renewal job can update a certificate file while the TLS process continues serving the old certificate from memory. A file check then passes incorrectly. Similar failures include unloaded configuration, an image that is not running, and a DNS record that did not propagate. Check the served artifact.
 
 ### Alerting on a layer's own health
 
-A check that hits a proxy or auth layer and receives that layer's own 200 will stay green while every real request behind it returns 502. This is the false-positive health check from `containers.md`, viewed from the monitoring side: the monitor is only as honest as the endpoint it calls.
+A proxy or auth layer can return its own 200 while every request to its backend returns 502. The monitor then reports success incorrectly. See the false-positive health check in `containers.md`.
 
 ### Deleting monitors during cleanup
 
-Retiring a service tempts you to delete its monitors as part of the sweep. That deletes the history too, and it is common to discover afterwards that the service was not fully retired. Disable or archive before deleting, and confirm with the operator that history loss is acceptable.
+Deleting monitors during service retirement also deletes their history. The service may still need them. Disable or archive monitors before deleting them. Confirm with the operator that history loss is acceptable.
 
 ## Diagnostic Commands
 

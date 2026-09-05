@@ -7,9 +7,9 @@
 
 *NOTE* This plugin won't keep Claude from going off the rails and blowing away production. Nothing can do that. But if you're already using Claude for prod, you've already crossed over into madness anyway. This plugin will help.
 
-A Claude Code plugin that enforces battle-tested SRE operational discipline for infrastructure work.
+A Claude Code plugin that applies SRE operational discipline to infrastructure work.
 
-When activated, it guides Claude through a rigorous checklist procedure for deployments, rollbacks, migrations, cache invalidation, certificate management, DNS changes, firewall rules, container orchestration, and incident response.
+When activated, it guides Claude through a checklist for infrastructure operations. These include deployments, rollbacks, migrations, cache invalidation, certificate management, DNS changes, firewall rules, container orchestration, and incident response.
 
 Every rule in this procedure exists because someone learned it the hard way.
 
@@ -48,7 +48,7 @@ Or require it for your team by adding to `.claude/settings.json`:
 
 ## When it activates
 
-The skill triggers whenever Claude is performing any operation that touches:
+The skill triggers whenever Claude works on:
 
 - Docker containers or compose files
 - Reverse proxies (Caddy, nginx, Traefik)
@@ -61,7 +61,7 @@ The skill triggers whenever Claude is performing any operation that touches:
 
 ## Reference docs
 
-The plugin includes domain-specific reference documents that are loaded contextually:
+The plugin loads reference documents for the relevant domains:
 
 | Reference | Covers |
 |-----------|--------|

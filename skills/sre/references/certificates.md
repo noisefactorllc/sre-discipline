@@ -8,7 +8,7 @@ Add these to your Phase 2 checklist when the operation involves certificates:
 
 - [ ] **Certificate type identified** — ACME auto-managed (Caddy/certbot) or manually provisioned?
 - [ ] **All endpoints that serve this domain identified** — a certificate change may need to happen on origin AND every CDN edge
-- [ ] **Challenge type compatible with architecture** — HTTP-01 requires the requesting server to receive the challenge. If DNS routing (latency-based, geo) sends challenges to the wrong server, use DNS-01 instead.
+- [ ] **Challenge type compatible with architecture** — HTTP-01 requires the requesting server to receive the challenge. If latency-based or geographic DNS routing sends challenges to another server, use DNS-01 instead.
 - [ ] **No `tls internal` or self-signed certs** — internal CAs are for internal service-to-service communication only. If a user's browser can reach it, it needs a real cert from a public CA.
 
 ## Traps
@@ -25,7 +25,7 @@ Use `docker compose up -d` (without `--force-recreate`) — it only recreates th
 
 ### ACME challenges and CDN/latency-based routing
 
-HTTP-01 ACME challenges require the certificate authority to reach the requesting server on port 80. If your DNS uses latency-based routing (Route53, Cloudflare, etc.), the challenge request may be routed to a different server than the one requesting the cert. The challenge fails silently, the cert isn't issued, and the old cert eventually expires.
+HTTP-01 ACME challenges require the certificate authority to reach the requesting server on port 80. Latency-based DNS routing, such as Route53 or Cloudflare, may send the challenge to another server. The challenge fails silently, certificate issuance fails, and the old certificate eventually expires.
 
 **Fix:** Use DNS-01 challenges for any domain with non-deterministic routing. DNS-01 proves domain ownership via DNS TXT records, not HTTP requests, so routing topology doesn't matter.
 
@@ -36,7 +36,7 @@ certbot certonly --dns-route53 -d example.com
 
 ### Renewed on disk is not served
 
-Servers load certificates into memory at start and keep serving what they loaded. A renewal job that writes a fresh certificate to disk changes nothing for users until the process reloads, so a host that has been up for a week keeps serving the old certificate right through expiry. Every renewal mechanism needs a matching reload, and every check must inspect the served certificate rather than the file.
+Servers load certificates into memory at startup. They continue to serve those certificates until they reload. Writing a renewed certificate to disk does not change what users receive. A host running for a week can therefore serve the old certificate through expiry. Pair every renewal mechanism with a reload. Check the served certificate instead of the file.
 
 ```bash
 # Reload on a schedule alongside the renewal loop (nginx container)
@@ -47,7 +47,7 @@ command: /bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & 
 
 ### Two renewers on one state directory
 
-Two processes managing the same `/etc/letsencrypt` (a container renewal loop plus a host cron, for example) race on the lockfile. One fails with "Another instance of Certbot is already running" and stops renewing silently, while the other's logs look healthy. Exactly one process owns the state directory, and when consolidating, confirm the survivor has the plugin it needs: a base certbot image cannot renew DNS-01 certificates and only discovers that at renewal time.
+Two processes managing `/etc/letsencrypt`, such as a container renewal loop and a host cron job, compete for the lockfile. One fails with "Another instance of Certbot is already running" and silently stops renewing. The other process still has healthy logs. Exactly one process must own the state directory. When consolidating, check that the remaining process has the required plugin. A base certbot image cannot renew DNS-01 certificates and discovers this only at renewal time.
 
 More traps for unattended renewal (timezone pinning, the random delay before non-interactive renewals act, deploys that trigger the job) are in `scheduled-jobs.md`.
 
@@ -55,7 +55,7 @@ More traps for unattended renewal (timezone pinning, the random delay before non
 
 When serving content from multiple edge nodes, every edge must have its own valid certificate for every domain it serves. A CDN edge serving the wrong certificate (or an expired one) causes intermittent errors that depend on which edge the user hits.
 
-**Issue certificates on all edges BEFORE deploying new domain configurations.** Don't deploy the config first and issue certs later — there will be a window where users hit uncertified edges.
+**Issue certificates on all edges BEFORE deploying new domain configurations.** Deploying configurations before certificates creates a period when users reach uncertified edges.
 
 ## Diagnostic Commands
 
@@ -81,7 +81,7 @@ curl -vI https://<domain> 2>&1 | grep -E 'subject:|issuer:|expire'
 
 ## Verification Commands
 
-After any certificate change, verify from outside — not just from the server:
+After any certificate change, check from outside — not just from the server:
 
 ```bash
 # Verify correct domain, valid dates, trusted CA

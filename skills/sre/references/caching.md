@@ -16,7 +16,7 @@ Add these to your Phase 2 checklist when the operation involves cached content:
 
 ### Silent stale serving
 
-When a CDN edge or reverse proxy can't reach the origin (network error, DNS failure, upstream timeout), many configurations serve stale cached content silently via directives like `proxy_cache_use_stale`. The cache appears frozen — the TTL expires, the revalidation attempt fails, and the stale response is served anyway with no visible error. The only symptom is users seeing old content indefinitely.
+A CDN edge or reverse proxy may fail to reach the origin because of network errors, DNS failures, or upstream timeouts. Many configurations then silently serve stale content through directives such as `proxy_cache_use_stale`. The TTL expires and revalidation fails, but the cache serves the stale response without a visible error. Users see old content indefinitely.
 
 **This is the most insidious caching failure mode.** If all edges/proxies are stale simultaneously, suspect a connectivity issue — not just expired caches.
 
@@ -24,7 +24,13 @@ Check edge/proxy error logs for `connect() failed`, `Network unreachable`, `upst
 
 ### IPv6 connectivity and cache revalidation
 
-If a CDN edge or proxy resolves an origin's AAAA record, attempts an IPv6 connection that fails ("Network unreachable"), and has `proxy_cache_use_stale error` configured, it serves stale content forever. The Docker network on the edge may lack IPv6 support.
+A CDN edge or proxy serves stale content indefinitely when all these conditions apply:
+
+- It resolves an origin AAAA record.
+- Its IPv6 connection fails with "Network unreachable".
+- Its configuration includes `proxy_cache_use_stale error`.
+
+The Docker network on the edge may lack IPv6 support.
 
 ```bash
 # Test IPv6 from inside a cache container
@@ -33,11 +39,11 @@ docker exec <cache-container> curl -6 -sf https://<origin-domain>/up --connect-t
 
 ### Cache key surprises
 
-Cache keys determine what's "the same" content. Common surprise: if the cache key is `$host$uri` (without query string), then cache-busting query parameters (`?v=2`, `?cb=timestamp`) have zero effect. Check your cache configuration before assuming query params will bypass the cache.
+Cache keys determine which requests share cached content. If the cache key is `$host$uri`, it excludes the query string. Cache-busting parameters such as `?v=2` or `?cb=timestamp` then have no effect. Check the cache configuration before assuming query parameters will bypass it.
 
 ### Purge verification from inside vs outside
 
-After purging a cache, don't verify by hitting the service directly (bypassing the cache). Verify through the cache — the path your users take:
+After purging a cache, don't check by hitting the service directly (bypassing the cache). Check through the cache — the path your users take:
 
 ```bash
 # Wrong: bypasses CDN, hits origin directly
@@ -50,13 +56,13 @@ curl -sI https://<domain>/<path> | grep -i x-cache
 
 ### Partial purges on multi-edge CDNs
 
-If you purge some edges but not all, users routed to unpurged edges still see stale content. The behavior appears intermittent and location-dependent — the worst kind of bug. Always purge ALL edges, and verify ALL edges afterward.
+If you purge only some edges, users at other edges still see stale content. This causes intermittent behavior that depends on location. Always purge ALL edges. Then check ALL edges.
 
 ## Cache Invalidation Principles
 
 ### Prefer time-based TTLs over event-based purging
 
-Event-based purging ("purge when we deploy") is fragile — it depends on the purge mechanism working, reaching every cache node, and completing before users hit stale content. Short TTLs are simpler and self-healing.
+Event-based purging ("purge when we deploy") depends on the purge mechanism working. It must reach every cache node before users request stale content. Short TTLs are simpler and let stale content expire automatically.
 
 ### Version your static assets
 
@@ -64,7 +70,7 @@ Include a content hash or version in filenames: `app.a3b2c4.js`, not `app.js`. N
 
 ### Never assume a purge succeeded
 
-Always verify by requesting the resource THROUGH the cache after purging.
+Always check by requesting the resource THROUGH the cache after purging.
 
 ## Diagnostic Commands
 

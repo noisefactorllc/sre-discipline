@@ -8,10 +8,10 @@ Add these to your Phase 2 checklist when the operation involves firewalls or net
 
 - [ ] **Docker iptables interaction understood** — Docker creates its own FORWARD chain rules. Host-level firewalls interact with these in non-obvious ways.
 - [ ] **Container-to-host communication paths audited** — some containers reach host-bound services (databases, APIs, monitoring agents). A deny-incoming rule may block this traffic.
-- [ ] **Container-to-container communication verified** — confirm the Docker bridge network will not be affected
-- [ ] **Testing on ONE server first** — apply the rule to one non-critical server, verify for 24 hours, then roll
-- [ ] **Rule persistence verified** — iptables rules vanish on reboot unless persisted via `iptables-persistent` or equivalent
-- [ ] **systemd dependencies reviewed** — if adding or modifying systemd drop-ins, verify no `Requires=` on non-essential services
+- [ ] **Container-to-container communication checked** — confirm the Docker bridge network will not be affected
+- [ ] **Testing on ONE server first** — Apply the rule to one non-critical server. Check it for 24 hours before proceeding.
+- [ ] **Rule persistence checked** — iptables rules vanish on reboot unless persisted via `iptables-persistent` or equivalent
+- [ ] **systemd dependencies reviewed** — if adding or modifying systemd drop-ins, check no `Requires=` on non-essential services
 - [ ] **ufw rule files validated** — all rules inside a `*filter`/`COMMIT` block, no orphans after final `COMMIT`
 
 ## Traps
@@ -34,9 +34,9 @@ After=ufw.service
 Wants=ufw.service
 ```
 
-This is especially dangerous because the dependency failure may be latent — everything works until the next reboot, when the dependent service fails to start for the first time and takes Docker down with it. The outage can last hours if no boot-time monitoring exists.
+The dependency failure may remain hidden until the next reboot. If the dependency then fails to start, Docker also fails. Without boot-time monitoring, the outage can last hours.
 
-**General rule:** Before adding any systemd dependency, ask: "If this dependency fails, should the dependent service also die?" If the answer is no, use `Wants=`, not `Requires=`.
+**General rule:** Before adding a systemd dependency, decide whether its failure should also stop the dependent service. If not, use `Wants=` instead of `Requires=`.
 
 ### Orphaned rules in ufw after.rules
 
@@ -62,7 +62,7 @@ COMMIT
 COMMIT
 ```
 
-**After any edit to ufw rule files, verify cold-load integrity:**
+**After any edit to ufw rule files, check cold-load integrity:**
 
 ```bash
 # Simulate cold load (tests iptables-restore parsing)
@@ -74,7 +74,7 @@ iptables-restore --test < /etc/ufw/after.rules
 Docker publishes ports by inserting rules in the FORWARD and nat chains of iptables. `ufw` operates on the INPUT chain. This means:
 
 - `ufw deny 8080` will **NOT** block traffic to a Docker container publishing port 8080. Docker's rules process the packet before ufw sees it.
-- This gives false confidence — you test, see the port is "blocked" from the host's perspective, but Docker continues accepting external traffic via its own chains.
+- A host-side test may indicate a blocked port while Docker still accepts external traffic through its own chains.
 
 **To block external access to Docker-published ports, you must either:**
 1. Stop publishing the port externally (bind to `127.0.0.1` in compose)
