@@ -3,6 +3,10 @@ name: Sync to Scaffold
 on:
   push:
     branches: [main]
+    paths:
+      - 'skills/**'
+      - '.claude-plugin/**'
+      - '.github/workflows/sync-to-scaffold.yml'
   workflow_dispatch:
 
 jobs:
