@@ -157,8 +157,9 @@ curl -sf "https://<domain>/deployment-meta.json"         # served artifact repor
 
 # The claim "the service is healthy" needs a path that reaches the backend
 # `&& echo OK || echo FAIL` here would mask the status: echo FAIL exits 0.
-# Keep the status with the command that earned it.
-curl -sf "https://<domain>/up"; echo "health status: $?"
+# Gate on curl itself; print the status for humans, but let curl's own
+# status decide the result.
+curl -sf "https://<domain>/up" || { echo "FAIL: health endpoint failed"; exit 1; }
 
 # The claim "the host is unreachable" needs more than one packet
 ping -c 3 -W 2 <host> || echo "confirmed unreachable after 3 packets"
