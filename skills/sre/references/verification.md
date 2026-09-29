@@ -131,10 +131,13 @@ set -o pipefail
 <command> | tee run.log; echo "stage statuses: ${PIPESTATUS[@]}"
 
 # Retry loop for a cold or flaky-by-nature target
+# The loop must fail when every attempt fails, or it is not a gate
+success=false
 for i in 1 2 3 4 5; do
-  curl -sf --max-time 10 "https://<domain>/up" && break
+  if curl -sf --max-time 10 "https://<domain>/up"; then success=true; break; fi
   echo "attempt $i failed"; sleep 5
 done
+[ "$success" = true ] || { echo "probe failed after 5 attempts"; exit 1; }
 
 # Multi-packet reachability, not a single probe
 ping -c 3 -W 2 <host>
@@ -153,7 +156,9 @@ docker inspect <name> --format '{{.State.StartedAt}}'    # process restarted aft
 curl -sf "https://<domain>/deployment-meta.json"         # served artifact reports the new SHA
 
 # The claim "the service is healthy" needs a path that reaches the backend
-curl -sf "https://<domain>/up" && echo OK || echo FAIL
+# `&& echo OK || echo FAIL` here would mask the status: echo FAIL exits 0.
+# Keep the status with the command that earned it.
+curl -sf "https://<domain>/up"; echo "health status: $?"
 
 # The claim "the host is unreachable" needs more than one packet
 ping -c 3 -W 2 <host> || echo "confirmed unreachable after 3 packets"
