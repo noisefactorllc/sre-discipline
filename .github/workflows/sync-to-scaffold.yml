@@ -9,6 +9,9 @@ on:
       - '.github/workflows/sync-to-scaffold.yml'
   workflow_dispatch:
 
+# Dispatch to scaffold authenticates with a GitHub App token, not GITHUB_TOKEN.
+permissions: {}
+
 jobs:
   notify-scaffold:
     runs-on: ubuntu-latest
