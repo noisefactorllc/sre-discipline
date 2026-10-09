@@ -39,11 +39,21 @@ Every destructive scheduled job should fail closed on its own preconditions:
 # In the job itself, not only in the timer
 now=$(date -u +%H%M)
 start=$(date -u -d "$REBOOT_TIME" +%H%M)
-end=$(date -u -d "$REBOOT_TIME + $WINDOW_MINUTES minutes" +%H%M)
-if [ "$now" -lt "$start" ] || [ "$now" -gt "$end" ]; then
+end=$(date -u -d "$REBOOT_TIME UTC + $WINDOW_MINUTES minutes" +%H%M)
+in_window=false
+if [ "$start" -le "$end" ]; then
+  # Same-day window: 05:00 + 30m -> 05:30
+  [ "$now" -ge "$start" ] && [ "$now" -le "$end" ] && in_window=true
+else
+  # Window crosses midnight: 23:00 + 120m -> 01:00. Either side of the seam counts.
+  { [ "$now" -ge "$start" ] || [ "$now" -le "$end" ]; } && in_window=true
+fi
+if [ "$in_window" = false ]; then
   echo "refusing: $now UTC is outside window $start-$end"; exit 0
 fi
 ```
+
+The `%H%M` arithmetic above cannot express a window longer than 24 hours. If yours is longer, compute both boundaries in epoch seconds instead of `%H%M`.
 
 The timer says when to try. The job decides whether it is allowed.
 
@@ -118,7 +128,9 @@ crontab -l -u <user>; cat /etc/cron.d/*
 grep -r CRON /var/log/syslog | tail -20
 
 # Is more than one process managing the same state dir
-ps aux | grep -c certbot
+# (bracketed pattern: an unbracketed grep also counts itself, so the
+# count can never reach zero)
+ps aux | grep -c '[c]ertbot'
 ls -la /etc/letsencrypt/.certbot.lock 2>/dev/null
 
 # What is actually consuming the disk (volumes are invisible to prune)

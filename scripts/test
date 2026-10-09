@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Test suite for the sre-discipline skill content. Plain bash; no network,
+# no Docker, no external dependencies.
+#
+# 1. Every fenced ```bash block in the skill markdown parses as shell after
+#    <placeholder> normalization (the docs embed runnable commands; an
+#    unparseable snippet is a defect).
+# 2. Every reference doc cited by SKILL.md or README.md exists, and every
+#    reference file on disk is cited somewhere.
+# 3. The scheduled-jobs.md fail-closed window guard runs its own preconditions:
+#    it must permit the window interior and refuse everything outside it,
+#    including windows that cross midnight.
+set -u
+cd "$(dirname "$0")/.."
+
+failures=0
+
+report() { # $1 = label, $2 = ok(0/1), rest = detail
+  if [ "$2" -ne 0 ]; then
+    failures=$((failures + 1))
+    printf 'FAIL %s%s\n' "$1" "${3:+: $3}"
+  fi
+}
+
+# --- 1. bash syntax of every fenced bash block -------------------------------
+while IFS= read -r -d '' md; do
+  in_block=0
+  block=""
+  lineno=0
+  block_start=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    case "$line" in
+      '```bash'*'```'*) continue ;;          # inline fence, not a block
+      '```bash'*)
+        in_block=1; block=""; block_start=$lineno; continue ;;
+      '```'*)
+        if [ "$in_block" = 1 ]; then
+          printf '%s' "$block" \
+            | sed -E -e 's/<[^<> ]*>/PLACEHOLDER/g' -e 's/\$\$\{!\}/\$\{PLACEHOLDER\}/g' \
+            | bash -n > /tmp/sre-test-bashn.$$ 2>&1
+          report "$md bash block at line $block_start" $? \
+            "$(tr '\n' ' ' < /tmp/sre-test-bashn.$$ | head -c 160; rm -f /tmp/sre-test-bashn.$$)"
+        fi
+        in_block=0; continue ;;
+    esac
+    if [ "$in_block" = 1 ]; then block+="$line"$'\n'; fi
+  done < "$md"
+done < <(find skills -name '*.md' -type f -print0 | sort -z)
+
+# --- 2. reference-doc linkage -------------------------------------------------
+for ref in $(grep -ho 'references/[a-z-]*\.md' skills/sre/SKILL.md README.md | sort -u); do
+  [ -f "skills/sre/$ref" ] || { report "cited reference exists: $ref" 1; continue; }
+done
+for f in skills/sre/references/*.md; do
+  name=$(basename "$f")
+  grep -q "$name" skills/sre/SKILL.md README.md || \
+    report "reference file is cited: $name" 1
+done
+
+# --- 3. the window guard in scheduled-jobs.md --------------------------------
+GUARD=skills/sre/references/scheduled-jobs.md
+snippet=$(awk '
+  /# In the job itself, not only in the timer/ {b=1; next}
+  b && /^```[[:space:]]*$/ {exit}
+  b {print}
+' "$GUARD")
+case "$snippet" in
+  *'in_window'*) ;; *) report "window guard snippet found in $GUARD" 1 ;;
+esac
+
+run_guard() { # $1=REBOOT_TIME $2=WINDOW_MINUTES $3=fixed now ; prints ALLOWED|REFUSED
+  local out
+  out=$(printf '%s' "$snippet" | sed "s/^now=.*/now=$3/" | \
+        REBOOT_TIME=$1 WINDOW_MINUTES=$2 bash 2>/dev/null) || true
+  case "$out" in *refusing*) echo REFUSED ;; *) echo ALLOWED ;; esac
+}
+
+while read -r rt wm now want desc; do
+  [ -n "${rt:-}" ] || continue
+  got=$(run_guard "$rt" "$wm" "$now")
+  [ "$got" = "$want" ] || report "window guard $rt + $wm min at $now UTC ($desc)" 1 \
+    "got $got, want $want"
+done <<CASES
+05:00 30 0510 ALLOWED same-day interior
+05:00 30 0440 REFUSED same-day before window
+05:00 30 0530 ALLOWED same-day inclusive end
+05:00 30 0531 REFUSED same-day just past end
+23:00 120 2330 ALLOWED crossing-midnight evening side
+23:00 120 0030 ALLOWED crossing-midnight morning side
+23:00 120 0100 ALLOWED crossing-midnight inclusive end
+23:00 120 0130 REFUSED crossing-midnight just past end
+23:00 120 1200 REFUSED crossing-midnight midday
+22:00 240 0159 ALLOWED crossing-midnight before seam
+22:00 240 0200 ALLOWED crossing-midnight at end
+22:00 240 0201 REFUSED crossing-midnight past end
+00:30 45 0045 ALLOWED same-day window anchored after midnight
+CASES
+
+if [ "$failures" -eq 0 ]; then
+  echo "test: ok"
+  exit 0
+fi
+echo "test: $failures failure(s)"
+exit 1
