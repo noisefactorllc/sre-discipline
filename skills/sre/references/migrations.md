@@ -40,9 +40,15 @@ psql -h <prod> -c "\d <table_the_new_code_needs>"
 grep -L '"<new_field>"' /path/to/configs/*.json
 
 # Env var presence in running containers vs persistent files
-docker inspect <name> --format '{{.Config.Env}}' | tr ',' '\n' | sort > /tmp/running-env
+# `{{.Config.Env}}` renders a Go slice: space-separated and bracketed, so
+# splitting on commas yields nothing. And the running env also holds
+# compose/daemon-injected vars (PATH, HOSTNAME) that never appear in the
+# file, so a plain diff reports differences for every healthy container.
+# List what the file defines that the running env lacks instead:
+# empty output means no drift, and each listed line has drifted.
+docker inspect <name> --format '{{range .Config.Env}}{{println .}}{{end}}' | sort > /tmp/running-env
 sort /etc/<service>/.env > /tmp/persistent-env
-diff /tmp/running-env /tmp/persistent-env
+comm -23 /tmp/persistent-env /tmp/running-env
 ```
 
 ### One-shot drops bundled with adds
@@ -109,9 +115,15 @@ done
 grep -L '"<new_field>"' configs/**/<config_name>.json
 
 # Check every container's actual running env against its persistent .env file
+# (daemon-injected vars such as PATH never appear in the file, so a plain
+# diff reports DRIFT for every healthy container; list only what the file
+# defines that the running env lacks)
 for c in $(docker ps --format '{{.Names}}'); do
-  diff <(docker inspect $c --format '{{range .Config.Env}}{{println .}}{{end}}' | sort) \
-       <(sort /home/<user>/$c/.env 2>/dev/null) && echo "$c: OK" || echo "$c: DRIFT"
+  envfile="/home/<user>/$c/.env"
+  if [ ! -f "$envfile" ]; then echo "$c: DRIFT: env file missing ($envfile)"; continue; fi
+  drifted=$(comm -23 <(sort "$envfile" 2>/dev/null) \
+        <(docker inspect $c --format '{{range .Config.Env}}{{println .}}{{end}}' | sort))
+  [ -n "$drifted" ] && echo "$c: DRIFT: $drifted" || echo "$c: OK"
 done
 ```
 

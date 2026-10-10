@@ -10,6 +10,8 @@
 # 3. The scheduled-jobs.md fail-closed window guard runs its own preconditions:
 #    it must permit the window interior and refuse everything outside it,
 #    including windows that cross midnight.
+# 4. The migrations.md env-drift comparisons actually run and are quiet for a
+#    healthy container (daemon-injected vars excluded) and loud for real drift.
 set -u
 cd "$(dirname "$0")/.."
 
@@ -96,6 +98,99 @@ done <<CASES
 22:00 240 0201 REFUSED crossing-midnight past end
 00:30 45 0045 ALLOWED same-day window anchored after midnight
 CASES
+
+# --- 4. env-drift snippets in migrations.md ----------------------------------
+MIG=skills/sre/references/migrations.md
+ENVSCRATCH=/tmp/sre-test-env.$$
+mkdir -p "$ENVSCRATCH"
+
+envsnippet=$(awk '
+  /^# Env var presence in running containers/ {b=1; next}
+  b && /^```[[:space:]]*$/ {exit}
+  b {print}
+' "$MIG")
+case "$envsnippet" in
+  *'{{range .Config.Env}}'*) ;; *) report "env-drift snippet found in $MIG" 1 ;;
+esac
+
+# Stub docker(1): the running env is what RUNNING_VARS holds, one VAR=VAL
+# per line, which is what the range rendering of .Config.Env produces.
+{ printf '%s\n' "docker() { for v in \$RUNNING_VARS; do printf '%s\n' \"\$v\"; done; }" > "$ENVSCRATCH/stub.sh"; }
+
+run_env_snippet() { # $1 = running env lines, $2 = persistent .env lines; prints snippet stdout
+  local body running_flat
+  printf '%s\n' "$2" > "$ENVSCRATCH/persistent.env"
+  running_flat=$(printf '%s' "$1" | tr '\n' ' ')
+  body=$(printf '%s' "$envsnippet" \
+    | sed -e 's|docker inspect <name>|docker inspect web1|' \
+          -e "s|/etc/<service>/.env|$ENVSCRATCH/persistent.env|" \
+          -e "s|/tmp/running-env|$ENVSCRATCH/running.out|" \
+          -e "s|/tmp/persistent-env|$ENVSCRATCH/persistent.out|")
+  { cat "$ENVSCRATCH/stub.sh"
+    # Quote the value: an unquoted multi-var value would be parsed as
+    # several assignments (RUNNING_VARS=A B=2 C=3), clobbering PATH.
+    printf "RUNNING_VARS='%s'\n" "$running_flat"
+    printf '%s\n' "$body"
+  } | bash 2>/dev/null
+}
+
+out=$(run_env_snippet 'API_KEY=abc
+DB_HOST=db.prod.internal
+DB_PORT=5432
+PATH=/usr/local/bin:/usr/bin
+HOSTNAME=web1' 'API_KEY=abc
+DB_HOST=db.prod.internal
+DB_PORT=5432')
+[ -z "$out" ] || report "env snippet: zero-drift env reads clean" 1 "got: $out"
+
+out=$(run_env_snippet 'DB_HOST=db.prod.internal
+DB_PORT=5432' 'API_KEY=abc
+DB_HOST=db.prod.internal
+DB_PORT=5432')
+[ "$out" = "API_KEY=abc" ] || report "env snippet: missing var reported" 1 "got: $out"
+
+loopsnippet=$(awk '
+  /^# Check every container/ {b=1; next}
+  b && /^```[[:space:]]*$/ {exit}
+  b {print}
+' "$MIG")
+case "$loopsnippet" in
+  *'comm -23'*) ;; *) report "env-drift loop snippet found in $MIG" 1 ;;
+esac
+
+{ printf '%s\n' 'docker() {'
+  printf '%s\n' '  case "$1" in'
+  printf '%s\n' '    ps) echo web1 ;;'
+  printf '%s\n' '    inspect) for v in $RUNNING_VARS; do printf "%s\n" "$v"; done ;;'
+  printf '%s\n' '  esac'
+  printf '%s\n' '}'
+} > "$ENVSCRATCH/stub2.sh"
+
+run_env_loop() { # $1 = running env lines, $2 = path to the stub .env file; prints snippet stdout
+  local body
+  body=$(printf '%s' "$loopsnippet" | sed -e "s|/home/<user>/\$c/.env|$2|")
+  { cat "$ENVSCRATCH/stub2.sh"
+    printf "RUNNING_VARS='%s'\n" "$(printf '%s' "$1" | tr '\n' ' ')"
+    printf '%s\n' "$body"
+  } | bash 2>/dev/null
+}
+
+printf 'API_KEY=abc\nDB_HOST=db.prod.internal\nDB_PORT=5432\n' > "$ENVSCRATCH/web1.env"
+out=$(run_env_loop 'API_KEY=abc
+DB_HOST=db.prod.internal
+DB_PORT=5432
+PATH=/usr/local/bin:/usr/bin' "$ENVSCRATCH/web1.env")
+case "$out" in *"web1: OK"*) ;; *) report "env loop: zero-drift env reads clean" 1 "got: $out" ;; esac
+
+out=$(run_env_loop 'DB_HOST=db.prod.internal
+DB_PORT=5432
+PATH=/usr/local/bin:/usr/bin' "$ENVSCRATCH/web1.env")
+case "$out" in *"web1: DRIFT: API_KEY=abc"*) ;; *) report "env loop: missing var reported" 1 "got: $out" ;; esac
+
+out=$(run_env_loop 'DB_HOST=db.prod.internal' "$ENVSCRATCH/absent.env")
+case "$out" in *"web1: DRIFT: env file missing"*) ;; *) report "env loop: missing env file reported" 1 "got: $out" ;; esac
+
+rm -rf "$ENVSCRATCH"
 
 if [ "$failures" -eq 0 ]; then
   echo "test: ok"
